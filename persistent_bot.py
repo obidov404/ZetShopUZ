@@ -61,6 +61,13 @@ def read_output(pipe, prefix):
 def start_bot():
     """Start the bot process"""
     try:
+        # Kill any existing python processes running bot.py
+        os.system('taskkill /f /im python.exe 2>nul')
+        
+        # Wait a moment for processes to clean up
+        time.sleep(2)
+        
+        # Start new bot process
         process = subprocess.Popen(
             [sys.executable, "bot.py"],
             stdout=subprocess.PIPE,
@@ -88,34 +95,57 @@ def main():
     """Main function"""
     global bot_process, should_stop
     
-    # Start health check server
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
-    
-    restart_count = 0
-    while not should_stop and restart_count < MAX_RESTARTS:
-        logger.info(f"Starting bot (attempt {restart_count + 1}/{MAX_RESTARTS})")
+    try:
+        # Start health check server
+        health_thread = threading.Thread(target=run_health_server, daemon=True)
+        health_thread.start()
         
-        bot_process = start_bot()
-        if not bot_process:
-            logger.error("Failed to start bot")
-            time.sleep(RESTART_DELAY)
-            continue
+        restart_count = 0
+        while not should_stop and restart_count < MAX_RESTARTS:
+            logger.info(f"Starting bot (attempt {restart_count + 1}/{MAX_RESTARTS})")
+            
+            bot_process = start_bot()
+            if not bot_process:
+                logger.error("Failed to start bot")
+                time.sleep(RESTART_DELAY)
+                continue
+            
+            try:
+                # Wait for process to exit
+                exit_code = bot_process.wait()
+                logger.info(f"Bot exited with code {exit_code}")
+                
+                if exit_code == 0:
+                    # Clean exit, no need to restart
+                    logger.info("Bot exited cleanly. Stopping.")
+                    break
+                    
+            except KeyboardInterrupt:
+                logger.info("Received interrupt signal")
+                should_stop = True
+                break
+            
+            if should_stop:
+                break
+            
+            restart_count += 1
+            if restart_count < MAX_RESTARTS:
+                logger.info(f"Restarting in {RESTART_DELAY} seconds...")
+                time.sleep(RESTART_DELAY)
         
-        # Wait for process to exit
-        exit_code = bot_process.wait()
-        logger.info(f"Bot exited with code {exit_code}")
-        
-        if should_stop:
-            break
-        
-        restart_count += 1
-        if restart_count < MAX_RESTARTS:
-            logger.info(f"Restarting in {RESTART_DELAY} seconds...")
-            time.sleep(RESTART_DELAY)
-    
-    if restart_count >= MAX_RESTARTS:
-        logger.error(f"Maximum restarts ({MAX_RESTARTS}) reached. Stopping.")
+        if restart_count >= MAX_RESTARTS:
+            logger.error(f"Maximum restarts ({MAX_RESTARTS}) reached. Stopping.")
+            
+    finally:
+        # Cleanup
+        if bot_process and bot_process.poll() is None:
+            logger.info("Terminating bot process...")
+            bot_process.terminate()
+            try:
+                bot_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.warning("Bot process did not terminate, forcing...")
+                bot_process.kill()
 
 if __name__ == "__main__":
     try:

@@ -151,12 +151,24 @@ async def main():
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher()
-    
-    # Include router
-    dp.include_router(router)
-    
-    # Start polling
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+    try:
+        # Delete webhook and clear updates
+        await bot.delete_webhook(drop_pending_updates=True)
+        
+        # Include router
+        dp.include_router(router)
+        
+        # Start polling
+        logger.info("Starting bot polling...")
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    except Exception as e:
+        logger.error(f"Critical error: {e}")
+        raise
+    finally:
+        # Close bot session
+        logger.info("Closing bot session...")
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
