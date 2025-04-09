@@ -1,173 +1,172 @@
 import os
-import sys
 import logging
 import asyncio
 from datetime import datetime
+from typing import Union, Dict, Optional
 
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from dotenv import load_dotenv
+
+from database import Database
+from keyboards import get_categories_keyboard, get_product_keyboard
+from utils import extract_product_info, format_price
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
-
-# Get configuration
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_USER_ID', 0))
-
-if not BOT_TOKEN:
-    logger.error("BOT_TOKEN not set")
-    sys.exit(1)
-
-if not ADMIN_ID:
-    logger.error("ADMIN_USER_ID not set")
-    sys.exit(1)
-
 # Initialize router
-router = Router(name="main_router")
+router = Router(name="catalog_router")
 
-# Keyboard generators
-def get_main_keyboard():
-    """Create main keyboard."""
-    buttons = [
-        [KeyboardButton(text="🏪 Katalog"), KeyboardButton(text="🛒 Savatcha")],
-        [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="ℹ️ Ma'lumot")]
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-    return keyboard
+# Constants
+CHANNEL_ID = -1002348319543
+CHANNEL_USERNAME = "@ZetShopUz"
 
-def get_admin_keyboard():
-    """Create admin panel keyboard."""
-    buttons = [
-        [KeyboardButton(text="📦 Mahsulotlarni boshqarish")],
-        [KeyboardButton(text="📁 Kategoriyalarni boshqarish"), KeyboardButton(text="📋 Buyurtmalarni ko'rish")],
-        [KeyboardButton(text="🔙 Chiqish")]
-    ]
-    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-    return keyboard
+# Initialize database
+db = Database()
 
-# Command handlers
+# User states
+user_states: Dict[int, Dict[str, Union[str, int]]] = {}
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     """Handle /start command."""
-    await message.answer(
-        "👋 Assalomu alaykum! ZetShop botiga xush kelibsiz!\n\n"
-        "🛍 Bizning botda siz quyidagi imkoniyatlarga ega bo'lasiz:\n"
-        "- Mahsulotlarni ko'rish va sotib olish\n"
-        "- Savatchani boshqarish\n"
-        "- Buyurtmalar tarixini ko'rish\n\n"
-        "Boshlash uchun quyidagi tugmalardan foydalaning:",
-        reply_markup=get_main_keyboard()
-    )
-
-@router.message(Command("admin"))
-async def cmd_admin(message: Message):
-    """Handle /admin command."""
-    if message.from_user.id != ADMIN_ID:
-        await message.answer("⛔️ Kechirasiz, bu buyruq faqat adminlar uchun.")
+    categories = await db.get_categories()
+    
+    if not categories:
+        await message.answer(
+            "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
+            "Hozircha katalogda mahsulotlar yo'q. "
+            "Iltimos keyinroq qayta urinib ko'ring."
+        )
         return
     
     await message.answer(
-        "🔐 Admin panelga xush kelibsiz!\n\n"
-        "Quyidagi bo'limlardan birini tanlang:",
-        reply_markup=get_admin_keyboard()
+        "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
+        "Quyidagi kategoriyalardan birini tanlang:",
+        reply_markup=get_categories_keyboard(categories)
     )
 
-# Text message handlers
-@router.message(F.text == "🏪 Katalog")
-async def show_catalog(message: Message):
-    await message.answer(
-        "📦 Katalog bo'limi ishga tushirilmoqda..."
-    )
-
-@router.message(F.text == "🛒 Savatcha")
-async def show_cart(message: Message):
-    await message.answer(
-        "🛒 Savatchangiz bo'sh."
-    )
-
-@router.message(F.text == "📋 Buyurtmalar")
-async def show_orders(message: Message):
-    await message.answer(
-        "📋 Sizning buyurtmalaringiz yo'q."
-    )
-
-@router.message(F.text == "ℹ️ Ma'lumot")
-async def show_info(message: Message):
-    await message.answer(
-        "ℹ️ Bot haqida ma'lumot:\n"
-        "ZetShop - onlayn do'kon boti."
-    )
-
-# Admin panel handlers
-@router.message(F.text == "📦 Mahsulotlarni boshqarish")
-async def manage_products(message: Message):
-    if message.from_user.id != ADMIN_ID:
+@router.message(F.text)
+async def handle_category_selection(message: Message):
+    """Handle category selection."""
+    products = await db.get_products_by_category(message.text)
+    
+    if not products:
+        await message.answer(
+            f"❌ Kechirasiz, \"{message.text}\" kategoriyasida hozircha mahsulotlar yo'q.\n"
+            f"Iltimos boshqa kategoriyani tanlang."
+        )
         return
-    await message.answer("📦 Mahsulotlarni boshqarish bo'limi.")
-
-@router.message(F.text == "📁 Kategoriyalarni boshqarish")
-async def manage_categories(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("📁 Kategoriyalarni boshqarish bo'limi.")
-
-@router.message(F.text == "📋 Buyurtmalarni ko'rish")
-async def manage_orders(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("📋 Buyurtmalarni ko'rish bo'limi.")
-
-@router.message(F.text == "🔙 Chiqish")
-async def exit_admin(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer(
-        "✅ Asosiy menyuga qaytdingiz.",
-        reply_markup=get_main_keyboard()
+    
+    # Save user's current category and product index
+    user_states[message.from_user.id] = {
+        "category": message.text,
+        "products": products,
+        "current_index": 0
+    }
+    
+    # Show first product
+    product = products[0]
+    await message.answer_photo(
+        photo=product['image_file_id'],
+        caption=(
+            f"{product['description']}\n\n"
+            f"💰 Narxi: {format_price(product['price'])}"
+        ),
+        reply_markup=get_product_keyboard()
     )
+
+@router.callback_query(F.data == "back_to_categories")
+async def back_to_categories(callback: CallbackQuery):
+    """Handle back button press."""
+    categories = await db.get_categories()
+    await callback.message.answer(
+        "📋 Kategoriyalardan birini tanlang:",
+        reply_markup=get_categories_keyboard(categories)
+    )
+    await callback.answer()
+
+async def process_channel_post(message: Message):
+    """Process new channel post."""
+    # Check if message is from our channel
+    if message.chat.id != CHANNEL_ID:
+        return
+    
+    # Get photo
+    photo = message.photo[-1] if message.photo else None
+    if not photo:
+        logger.info("Skipping post without photo")
+        return
+    
+    # Extract product info
+    price, category, description = extract_product_info(message.caption or "")
+    if not all([price, category]):
+        logger.info("Skipping post without price or category")
+        return
+    
+    # Save product to database
+    await db.add_product(
+        image_file_id=photo.file_id,
+        description=description,
+        price=price,
+        category=category
+    )
+    logger.info(f"Added new product in category: {category}")
+
+async def cleanup_task():
+    """Periodic cleanup task."""
+    await db.cleanup_old_products()
 
 async def main():
     """Main function."""
-    # Initialize Bot and Dispatcher
+    # Get bot token from env
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        logger.error("BOT_TOKEN not set in environment variables")
+        return
+    
+    # Initialize bot and dispatcher
     bot = Bot(
-        token=BOT_TOKEN,
+        token=bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher()
-
+    
     try:
-        # Delete webhook and clear updates
-        await bot.delete_webhook(drop_pending_updates=True)
+        # Initialize database
+        await db.create_tables()
+        
+        # Setup scheduler
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(cleanup_task, 'interval', hours=24)
+        scheduler.start()
         
         # Include router
         dp.include_router(router)
         
+        # Register channel post handler
+        dp.channel_post.register(process_channel_post)
+        
         # Start polling
-        logger.info("Starting bot polling...")
+        logger.info("Starting bot...")
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        
     except Exception as e:
-        logger.error(f"Critical error: {e}")
+        logger.error(f"Error: {e}")
         raise
     finally:
-        # Close bot session
-        logger.info("Closing bot session...")
         await bot.session.close()
 
 if __name__ == "__main__":

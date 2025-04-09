@@ -1,20 +1,14 @@
-# ZetShop Bot
+# ZetShop Catalog Bot
 
-A Telegram bot for managing an online shop with admin panel and customer features.
+A Telegram bot that monitors the @ZetShopUz channel and creates a product catalog from posts.
 
 ## Features
 
-### Admin Features
-- Product management (add, edit, delete)
-- Category management
-- Order management
-- View customer information
-
-### Customer Features
-- Browse product catalog by categories
-- Add products to cart
-- Place orders
-- View order history
+- Monitors @ZetShopUz channel for new product posts
+- Automatically extracts product information from posts
+- Categorizes products based on hashtags
+- Shows products to users by category
+- Automatically cleans up old products (14 days)
 
 ## Setup
 
@@ -23,18 +17,14 @@ A Telegram bot for managing an online shop with admin panel and customer feature
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables in `.env`:
-```
-BOT_TOKEN=your_bot_token
-DATABASE_URL=sqlite:///zetshop.db
-ADMIN_USER_ID=your_telegram_id
-```
+2. Set up environment variables in `.env`:
+- BOT_TOKEN: Your Telegram bot token
 
 3. Run the bot:
 ```bash
-python persistent_bot.py
+python bot.py
 ```
 
 ## Deployment
 
-This bot is configured to run on Render.com. The `Procfile` and `requirements.txt` are already set up for deployment.
+The bot is ready for deployment on platforms like Heroku or Render.com using the included Procfile.
