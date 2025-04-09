@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, Router, F, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.filters import Command, CommandStart, Text, StateFilter
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.types import (Message, CallbackQuery,
                          ReplyKeyboardMarkup, KeyboardButton,
                          InlineKeyboardMarkup, InlineKeyboardButton,
@@ -282,6 +282,60 @@ async def main():
     
     # Start polling
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+# Text message handlers
+@router.message(F.text == "🏪 Katalog")
+async def show_catalog(message: Message):
+    await message.answer(
+        "📦 Katalog bo'limi ishga tushirilmoqda..."
+    )
+
+@router.message(F.text == "🛒 Savatcha")
+async def show_cart(message: Message):
+    await message.answer(
+        "🛒 Savatchangiz bo'sh."
+    )
+
+@router.message(F.text == "📋 Buyurtmalar")
+async def show_orders(message: Message):
+    await message.answer(
+        "📋 Sizning buyurtmalaringiz yo'q."
+    )
+
+@router.message(F.text == "ℹ️ Ma'lumot")
+async def show_info(message: Message):
+    await message.answer(
+        "ℹ️ Bot haqida ma'lumot:\n"
+        "ZetShop - onlayn do'kon boti."
+    )
+
+# Admin panel handlers
+@router.message(F.text == "📦 Mahsulotlarni boshqarish")
+async def manage_products(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("📦 Mahsulotlarni boshqarish bo'limi.")
+
+@router.message(F.text == "📁 Kategoriyalarni boshqarish")
+async def manage_categories(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("📁 Kategoriyalarni boshqarish bo'limi.")
+
+@router.message(F.text == "📋 Buyurtmalarni ko'rish")
+async def manage_orders(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("📋 Buyurtmalarni ko'rish bo'limi.")
+
+@router.message(F.text == "🔙 Chiqish")
+async def exit_admin(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer(
+        "✅ Asosiy menyuga qaytdingiz.",
+        reply_markup=get_main_keyboard()
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
