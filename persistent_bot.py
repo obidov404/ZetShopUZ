@@ -22,39 +22,31 @@ import psutil
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables first
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='persistent_bot.log',
-    filemode='a'
+    handlers=[
+        logging.FileHandler("telegram_bot.log"),
+        logging.StreamHandler()
+    ]
 )
-
-# Also log to console
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
-
 logger = logging.getLogger(__name__)
 
-# Configuration
+# Load environment variables
+load_dotenv()
+
+# Constants
 MAX_RESTARTS = 20  # Maximum number of restarts in 24 hours
 RESTART_DELAY = 10  # Seconds to wait between restarts
 RESTART_BACKOFF_MAX = 300  # Maximum seconds to wait between restarts (5 minutes)
-REPLIT_KEEP_ALIVE_URL = os.environ.get('REPLIT_DB_URL', '').replace('db', 'keep-alive')
-HEALTH_CHECK_PORT = int(os.environ.get('PORT', 8080))  # Port for health check (Render provides PORT env var)
+HEALTH_CHECK_PORT = int(os.environ.get('PORT', 8080))  # Port for health check
 
 # State variables
 termination_requested = False
 restart_count = 0
 restart_timestamps = []
 current_process = None
-keep_alive_thread = None
 health_check_thread = None
 
 def handle_sigterm(signum, frame):
@@ -66,11 +58,8 @@ def handle_sigterm(signum, frame):
     if current_process:
         logger.info("Terminating bot process...")
         try:
-            # Try to terminate gracefully first
             current_process.terminate()
-            time.sleep(2)  # Give it a moment to shut down
-            
-            # Force kill if still running
+            time.sleep(2)
             if current_process.poll() is None:
                 current_process.kill()
         except Exception as e:
@@ -80,164 +69,104 @@ def handle_sigterm(signum, frame):
 signal.signal(signal.SIGTERM, handle_sigterm)
 signal.signal(signal.SIGINT, handle_sigterm)
 
-def replit_keep_alive():
-    """Ping Replit keep-alive service to prevent the repl from sleeping"""
-    if not REPLIT_KEEP_ALIVE_URL:
-        logger.warning("REPLIT_DB_URL not found, keep-alive service not available")
-        return
-    
-    while not termination_requested:
-        try:
-            response = requests.get(REPLIT_KEEP_ALIVE_URL)
-            logger.debug(f"Keep-alive ping: {response.status_code}")
-        except Exception as e:
-            logger.error(f"Error in keep-alive ping: {e}")
-        
-        # Wait 5 minutes before next ping
-        for _ in range(300):  # 5 minutes in 1-second increments
-            if termination_requested:
-                break
-            time.sleep(1)
-
-def health_check():
-    """Check if the bot is still responsive via the Telegram API"""
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    bot_token = os.environ.get('BOT_TOKEN')
-    if not bot_token:
-        logger.error("BOT_TOKEN not found, health checks disabled")
-        return
-    
-    while not termination_requested:
-        try:
-            # Try to get bot info from Telegram API
-            response = requests.get(
-                f"https://api.telegram.org/bot{bot_token}/getMe",
-                timeout=30
-            )
-            data = response.json()
-            
-            if data.get('ok'):
-                logger.debug(f"Health check: Bot @{data['result']['username']} is online")
-            else:
-                logger.error(f"Health check failed: {data.get('description', 'Unknown error')}")
-                # Trigger restart if process exists
-                if current_process and current_process.poll() is None:
-                    logger.warning("Bot seems unresponsive, triggering restart...")
-                    current_process.terminate()
-        except Exception as e:
-            logger.error(f"Error in health check: {e}")
-        
-        # Wait 10 minutes before next health check
-        for _ in range(600):  # 10 minutes in 1-second increments
-            if termination_requested:
-                break
-            time.sleep(1)
-
 def calculate_restart_delay():
-    """Calculate adaptive delay between restarts to prevent excessive cpu usage"""
+    """Calculate adaptive delay between restarts"""
     global restart_count, restart_timestamps
     
-    # Keep only timestamps from the last 24 hours
-    cutoff_time = time.time() - 86400  # 24 hours ago
-    restart_timestamps = [ts for ts in restart_timestamps if ts > cutoff_time]
-    
-    # Add current timestamp
-    restart_timestamps.append(time.time())
+    now = datetime.now()
+    restart_timestamps = [ts for ts in restart_timestamps if (now - ts).total_seconds() < 86400]
+    restart_timestamps.append(now)
     restart_count = len(restart_timestamps)
     
-    # Calculate delay based on recent restart frequency
-    if restart_count <= 3:
-        return RESTART_DELAY
-    elif restart_count <= 5:
-        return min(RESTART_DELAY * 2, RESTART_BACKOFF_MAX)
-    elif restart_count <= 10:
-        return min(RESTART_DELAY * 4, RESTART_BACKOFF_MAX)
+    if restart_count > 1:
+        # Exponential backoff
+        delay = min(RESTART_DELAY * (2 ** (restart_count - 1)), RESTART_BACKOFF_MAX)
     else:
-        return RESTART_BACKOFF_MAX
+        delay = RESTART_DELAY
+    
+    return delay
 
 def start_bot_process():
     """Start the bot process and return the subprocess object"""
     logger.info("Starting bot process...")
     
-    # Build the command with explicit python path
-    cmd = [sys.executable, "bot_runner.py"]
+    # Get system stats before starting
+    stats = get_system_stats()
+    logger.info(f"System stats before start: {json.dumps(stats)}")
     
-    # Start the process
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        universal_newlines=True,
-        bufsize=1  # Line buffered
-    )
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "bot.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Start output readers
+        for pipe, prefix in [(process.stdout, "OUT"), (process.stderr, "ERR")]:
+            thread = threading.Thread(
+                target=read_output,
+                args=(pipe, prefix),
+                daemon=True
+            )
+            thread.start()
+        
+        return process
     
-    # Start stdout/stderr readers in separate threads
-    def read_output(pipe, prefix):
+    except Exception as e:
+        logger.error(f"Error starting bot process: {e}")
+        return None
+
+def read_output(pipe, prefix):
+    """Read output from the bot process"""
+    try:
         for line in pipe:
             logger.info(f"{prefix}: {line.strip()}")
-    
-    threading.Thread(target=read_output, args=(process.stdout, "BOT_OUT"), daemon=True).start()
-    threading.Thread(target=read_output, args=(process.stderr, "BOT_ERR"), daemon=True).start()
-    
-    logger.info(f"Bot process started with PID {process.pid}")
-    return process
+    except Exception as e:
+        logger.error(f"Error reading {prefix}: {e}")
 
 def get_system_stats():
     """Get basic system stats"""
     try:
-        cpu_percent = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory()
-        memory_usage = memory.percent
         disk = psutil.disk_usage('/')
-        disk_usage = disk.percent
-        
         return {
-            "cpu_percent": cpu_percent,
-            "memory_percent": memory_usage,
-            "disk_percent": disk_usage,
-            "memory_available_mb": round(memory.available / (1024 * 1024), 2),
-            "disk_free_gb": round(disk.free / (1024 * 1024 * 1024), 2)
+            "memory_percent": memory.percent,
+            "memory_available": memory.available,
+            "cpu_percent": psutil.cpu_percent(),
+            "disk_percent": disk.percent,
+            "disk_free": disk.free
         }
     except Exception as e:
         logger.error(f"Error getting system stats: {e}")
-        return {"error": str(e)}
-
+        return {}
 
 def check_bot_status():
     """Check if the bot is working by calling the Telegram API"""
     bot_token = os.environ.get('BOT_TOKEN')
     if not bot_token:
-        return {"status": "error", "message": "BOT_TOKEN not set"}
+        logger.error("BOT_TOKEN not found, health checks disabled")
+        return False
     
     try:
         response = requests.get(
             f"https://api.telegram.org/bot{bot_token}/getMe",
-            timeout=10
+            timeout=30
         )
+        data = response.json()
         
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("ok"):
-                bot_info = data.get("result", {})
-                return {
-                    "status": "online",
-                    "bot_id": bot_info.get("id"),
-                    "bot_name": bot_info.get("first_name"),
-                    "bot_username": bot_info.get("username"),
-                    "response_time_ms": int(response.elapsed.total_seconds() * 1000)
-                }
-        
-        return {
-            "status": "error",
-            "http_status": response.status_code,
-            "message": f"API returned: {response.text}"
-        }
+        if data.get('ok'):
+            logger.debug(f"Bot @{data['result']['username']} is online")
+            return True, data['result']['username']
+        else:
+            logger.error(f"Bot check failed: {data.get('description', 'Unknown error')}")
+            return False, None
     
-    except requests.RequestException as e:
-        return {"status": "error", "message": f"API request failed: {str(e)}"}
-
+    except Exception as e:
+        logger.error(f"Error checking bot status: {e}")
+        return False, None
 
 class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
     """Custom HTTP request handler for health checks"""
@@ -245,66 +174,77 @@ class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests"""
         if self.path == '/health':
-            start_time = datetime.now()
-            uptime = datetime.now() - start_time
+            # Check bot status
+            is_alive, bot_username = check_bot_status()
             
-            health_data = {
-                "status": "ok",
-                "uptime": str(uptime),
+            # Get system stats
+            stats = get_system_stats()
+            
+            # Prepare response
+            status = "healthy" if is_alive else "unhealthy"
+            response = {
+                "status": status,
+                "bot_username": bot_username,
                 "timestamp": datetime.now().isoformat(),
-                "host": self.headers.get('Host', 'unknown'),
-                "system": get_system_stats(),
-                "bot": check_bot_status(),
-                "process": {
-                    "status": "running" if current_process and current_process.poll() is None else "not_running",
-                    "pid": current_process.pid if current_process else None,
-                    "restart_count": restart_count
-                }
+                "restarts_24h": restart_count,
+                "system_stats": stats
             }
             
-            # Determine overall health status
-            if (health_data["bot"]["status"] != "online" or
-                health_data["process"]["status"] != "running"):
-                health_data["status"] = "degraded"
-            
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
+            # Send response
+            self.send_response(200 if is_alive else 503)
+            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps(health_data, indent=2).encode())
+            self.wfile.write(json.dumps(response, indent=2).encode())
             
-        elif self.path == '/' or self.path == '/status':
-            # A simpler status page that just says the bot is running
+        elif self.path == '/':
+            # Serve HTML status page
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-Type', 'text/html')
             self.end_headers()
             
-            status = "Running" if current_process and current_process.poll() is None else "Stopped"
-            color = "green" if status == "Running" else "red"
-            
-            bot_info = check_bot_status()
-            bot_username = bot_info.get("bot_username", "Unknown")
+            # Get status info
+            is_alive, bot_username = check_bot_status()
+            status = "🟢 Online" if is_alive else "🔴 Offline"
             
             html = f"""
             <!DOCTYPE html>
             <html>
             <head>
                 <title>ZetShopUz Bot Status</title>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
                 <style>
-                    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
-                    .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-                    h1 {{ color: #333; margin-top: 0; }}
-                    .status {{ display: inline-block; padding: 6px 12px; border-radius: 4px; color: white; background-color: {color}; }}
-                    p {{ color: #666; }}
-                    .footer {{ margin-top: 30px; font-size: 0.8rem; color: #999; text-align: center; }}
+                    body {{
+                        font-family: Arial, sans-serif;
+                        margin: 40px;
+                        background: #f5f5f5;
+                    }}
+                    .container {{
+                        max-width: 800px;
+                        margin: 0 auto;
+                        background: white;
+                        padding: 20px;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    h1 {{
+                        color: #333;
+                        margin-bottom: 20px;
+                    }}
+                    .status {{
+                        font-weight: bold;
+                        color: {is_alive and '#28a745' or '#dc3545'};
+                    }}
+                    .footer {{
+                        margin-top: 20px;
+                        color: #666;
+                        font-size: 0.9em;
+                    }}
                 </style>
             </head>
             <body>
                 <div class="container">
                     <h1>ZetShopUz Telegram Bot</h1>
                     <p>Status: <span class="status">{status}</span></p>
-                    <p>Bot Username: @{bot_username}</p>
+                    <p>Bot Username: @{bot_username or 'Unknown'}</p>
                     <p>Last check: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
                     <p>Restarts in last 24h: {restart_count}</p>
                     <div class="footer">
@@ -324,8 +264,7 @@ class HealthCheckHandler(http.server.SimpleHTTPRequestHandler):
         """Override to use our logger"""
         logger.info("%s - %s" % (self.address_string(), format % args))
 
-
-def run_health_server():
+def run_health_check_server():
     """Run the health check HTTP server"""
     try:
         with socketserver.TCPServer(("0.0.0.0", HEALTH_CHECK_PORT), HealthCheckHandler) as httpd:
@@ -334,30 +273,17 @@ def run_health_server():
                 httpd.handle_request()
     except Exception as e:
         logger.error(f"Error running health server: {e}")
-        time.sleep(5)  # Wait a bit before potential restart
-
+        time.sleep(5)
 
 def main():
     """Main function to run the persistent bot with monitoring"""
-    global current_process, keep_alive_thread, health_check_thread, restart_count
-    
-    # Initialize restart counter
-    restart_count = 0
+    global current_process, health_check_thread, restart_count
     
     logger.info(f"Starting persistent bot runner on Render.com (Port: {HEALTH_CHECK_PORT})...")
     
-    # Start health check server in a separate thread
-    health_server_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_server_thread.start()
-    logger.info(f"Health check server started at http://0.0.0.0:{HEALTH_CHECK_PORT}/health")
-    
-    # Start keep-alive ping to Replit (only if needed)
-    if REPLIT_KEEP_ALIVE_URL:
-        keep_alive_thread = threading.Thread(target=replit_keep_alive, daemon=True)
-        keep_alive_thread.start()
-    
-    # Start health check thread
-    health_check_thread = threading.Thread(target=health_check, daemon=True)
+    # Start the health check server
+    health_check_thread = threading.Thread(target=run_health_check_server)
+    health_check_thread.daemon = True
     health_check_thread.start()
     
     while not termination_requested:
@@ -365,14 +291,18 @@ def main():
         if restart_count >= MAX_RESTARTS:
             logger.critical(
                 f"Maximum restarts ({MAX_RESTARTS}) exceeded in 24 hours. "
-                "Waiting for 1 hour before trying again to prevent abuse."
+                "Waiting for 1 hour before trying again."
             )
             time.sleep(3600)  # Wait 1 hour
-            restart_count = 0  # Reset counter after waiting
+            restart_count = 0
             restart_timestamps.clear()
         
         # Start the bot process
         current_process = start_bot_process()
+        if not current_process:
+            logger.error("Failed to start bot process")
+            time.sleep(RESTART_DELAY)
+            continue
         
         # Wait for process to exit
         return_code = current_process.wait()
@@ -385,14 +315,14 @@ def main():
         # Log the restart
         logger.warning(
             f"Bot process exited with code {return_code} at {end_time}. "
-            f"Restart count: {restart_count + 1}"
+            f"Restart count: {restart_count}"
         )
         
         # Calculate and apply restart delay
         delay = calculate_restart_delay()
         logger.info(f"Waiting {delay} seconds before restart...")
         
-        # Wait for the delay period, checking for termination every second
+        # Wait for the delay period, checking for termination
         for _ in range(int(delay)):
             if termination_requested:
                 break
