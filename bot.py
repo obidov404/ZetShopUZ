@@ -45,25 +45,21 @@ router = Router(name="main_router")
 # Keyboard generators
 def get_main_keyboard():
     """Create main keyboard."""
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    catalog_button = KeyboardButton("🏪 Katalog")
-    cart_button = KeyboardButton("🛒 Savatcha")
-    orders_button = KeyboardButton("📋 Buyurtmalar")
-    info_button = KeyboardButton("ℹ️ Ma'lumot")
-    keyboard.add(catalog_button, cart_button)
-    keyboard.add(orders_button, info_button)
+    buttons = [
+        [KeyboardButton(text="🏪 Katalog"), KeyboardButton(text="🛒 Savatcha")],
+        [KeyboardButton(text="📋 Buyurtmalar"), KeyboardButton(text="ℹ️ Ma'lumot")]
+    ]
+    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     return keyboard
 
 def get_admin_keyboard():
     """Create admin panel keyboard."""
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True)
-    products_button = KeyboardButton("📦 Mahsulotlarni boshqarish")
-    categories_button = KeyboardButton("📁 Kategoriyalarni boshqarish")
-    orders_button = KeyboardButton("📋 Buyurtmalarni ko'rish")
-    exit_button = KeyboardButton("🔙 Chiqish")
-    keyboard.add(products_button)
-    keyboard.add(categories_button, orders_button)
-    keyboard.add(exit_button)
+    buttons = [
+        [KeyboardButton(text="📦 Mahsulotlarni boshqarish")],
+        [KeyboardButton(text="📁 Kategoriyalarni boshqarish"), KeyboardButton(text="📋 Buyurtmalarni ko'rish")],
+        [KeyboardButton(text="🔙 Chiqish")]
+    ]
+    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
     return keyboard
 
 # Command handlers
