@@ -339,7 +339,10 @@ def run_health_server():
 
 def main():
     """Main function to run the persistent bot with monitoring"""
-    global current_process, keep_alive_thread, health_check_thread
+    global current_process, keep_alive_thread, health_check_thread, restart_count
+    
+    # Initialize restart counter
+    restart_count = 0
     
     logger.info(f"Starting persistent bot runner on Render.com (Port: {HEALTH_CHECK_PORT})...")
     
