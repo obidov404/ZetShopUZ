@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 
 # Configure logging
 logging.basicConfig(
@@ -149,7 +150,10 @@ async def exit_admin(message: Message):
 async def main():
     """Main function."""
     # Initialize Bot and Dispatcher
-    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+    bot = Bot(
+        token=BOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
     dp = Dispatcher()
     
     # Include router
