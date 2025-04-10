@@ -46,7 +46,7 @@ user_states: Dict[int, Dict[str, Union[str, int]]] = {}
 async def cmd_start(message: Message):
     """Handle /start command."""
     await message.answer(
-        "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
+        "🛍 Assalomu alaykum! ZetShopUz katalogiga xush kelibsiz!\n\n"
         "Quyidagi tugmalardan birini tanlang:",
         reply_markup=get_main_menu_keyboard()
     )
@@ -84,9 +84,9 @@ async def show_catalog(message: Message):
 async def show_info(message: Message):
     """Show bot information."""
     await message.answer(
-        "ℹ️ ZetShop - bu online do'kon\n\n"
+        "ℹ️ ZetShopUz - bu online do'kon\n\n"
         "🛍 Bizda siz uchun eng sifatli va arzon mahsulotlar mavjud.\n\n"
-        "📞 Aloqa: +998901234567\n"
+        "📞 Aloqa(kOREA): +8201056430440\n"
         "📍 Manzil: Toshkent shahri\n"
         "📱 Telegram: @ZetShopUz"
     )
@@ -176,9 +176,9 @@ async def admin_edit_info(callback: CallbackQuery):
         "📝 Ma'lumotni tahrirlash uchun quyidagi formatda xabar yuboring:\n\n"
         "Ma'lumot matni\n\n"
         "Misol:\n"
-        "ℹ️ ZetShop - bu online do'kon\n"
+        "ℹ️ ZetShopUz - bu online do'kon\n"
         "🛍 Bizda siz uchun eng sifatli va arzon mahsulotlar mavjud.\n"
-        "📞 Aloqa: +998901234567\n"
+        "📞 Aloqa(KOREA): +8201056430440\n"
         "📍 Manzil: Toshkent shahri\n"
         "📱 Telegram: @ZetShopUz"
     )
