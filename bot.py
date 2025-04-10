@@ -34,7 +34,7 @@ CHANNEL_ID = -1002348319543
 CHANNEL_USERNAME = "@ZetShopUz"
 
 # Admin list - add admin user IDs here
-ADMIN_IDS = [636974091]  # Replace with actual admin user IDs
+ADMIN_IDS = [6369740691]  # Replace with actual admin user IDs
 
 # Initialize database
 db = Database()
