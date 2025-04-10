@@ -19,7 +19,7 @@ CATEGORY_MAPPING = {
 def extract_price(text: str) -> Optional[int]:
     """Extract price from text in UZS."""
     # Look for price patterns like "Narxi: 150 000 so'm" or "150000 so'm"
-    price_pattern = r'(?:narxi:?\s*)?(\d+(?:[ ,]\d+)*)\s*(?:so[\'']m|сум)'
+    price_pattern = r'(?:narxi:?\s*)?(\d+(?:[ ,]\d+)*)\s*(?:som|so\'m|сум)'
     match = re.search(price_pattern, text.lower())
     if match:
         # Remove spaces and commas from the price string

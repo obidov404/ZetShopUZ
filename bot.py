@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
 from database import Database
-from keyboards import get_categories_keyboard, get_product_keyboard
+from keyboards import get_categories_keyboard, get_product_keyboard, get_main_menu_keyboard, get_admin_keyboard
 from utils import extract_product_info, format_price
 
 # Load environment variables
@@ -33,6 +33,9 @@ router = Router(name="catalog_router")
 CHANNEL_ID = -1002348319543
 CHANNEL_USERNAME = "@ZetShopUz"
 
+# Admin list - add admin user IDs here
+ADMIN_IDS = [636974091]  # Replace with actual admin user IDs
+
 # Initialize database
 db = Database()
 
@@ -42,20 +45,50 @@ user_states: Dict[int, Dict[str, Union[str, int]]] = {}
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     """Handle /start command."""
+    await message.answer(
+        "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
+        "Quyidagi tugmalardan birini tanlang:",
+        reply_markup=get_main_menu_keyboard()
+    )
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message):
+    """Handle /admin command."""
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔️ Bu buyruq faqat adminlar uchun")
+        return
+    
+    await message.answer(
+        "👨‍💼 Admin panel",
+        reply_markup=get_admin_keyboard()
+    )
+
+@router.message(F.text == "📋 Katalog")
+async def show_catalog(message: Message):
+    """Show product categories."""
     categories = await db.get_categories()
     
     if not categories:
         await message.answer(
-            "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
-            "Hozircha katalogda mahsulotlar yo'q. "
+            "❌ Hozircha katalogda mahsulotlar yo'q.\n"
             "Iltimos keyinroq qayta urinib ko'ring."
         )
         return
     
     await message.answer(
-        "🛍 Assalomu alaykum! ZetShop katalogiga xush kelibsiz!\n\n"
-        "Quyidagi kategoriyalardan birini tanlang:",
+        "📋 Kategoriyalardan birini tanlang:",
         reply_markup=get_categories_keyboard(categories)
+    )
+
+@router.message(F.text == "ℹ️ Ma'lumot")
+async def show_info(message: Message):
+    """Show bot information."""
+    await message.answer(
+        "ℹ️ ZetShop - bu online do'kon\n\n"
+        "🛍 Bizda siz uchun eng sifatli va arzon mahsulotlar mavjud.\n\n"
+        "📞 Aloqa: +998901234567\n"
+        "📍 Manzil: Toshkent shahri\n"
+        "📱 Telegram: @ZetShopUz"
     )
 
 @router.message(F.text)
@@ -95,6 +128,59 @@ async def back_to_categories(callback: CallbackQuery):
     await callback.message.answer(
         "📋 Kategoriyalardan birini tanlang:",
         reply_markup=get_categories_keyboard(categories)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_add_product")
+async def admin_add_product(callback: CallbackQuery):
+    """Handle admin add product button."""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔️ Bu tugma faqat adminlar uchun", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "➕ Yangi mahsulot qo'shish uchun quyidagi formatda xabar yuboring:\n\n"
+        "[Rasm]\n"
+        "Mahsulot nomi va tavsifi\n"
+        "Narxi: XXX so'm\n"
+        "#kategoriya"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_edit_products")
+async def admin_edit_products(callback: CallbackQuery):
+    """Handle admin edit products button."""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔️ Bu tugma faqat adminlar uchun", show_alert=True)
+        return
+    
+    categories = await db.get_categories()
+    if not categories:
+        await callback.answer("❌ Hozircha mahsulotlar yo'q", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "✏️ Tahrirlash uchun kategoriyani tanlang:",
+        reply_markup=get_categories_keyboard(categories)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_edit_info")
+async def admin_edit_info(callback: CallbackQuery):
+    """Handle admin edit info button."""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔️ Bu tugma faqat adminlar uchun", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "📝 Ma'lumotni tahrirlash uchun quyidagi formatda xabar yuboring:\n\n"
+        "Ma'lumot matni\n\n"
+        "Misol:\n"
+        "ℹ️ ZetShop - bu online do'kon\n"
+        "🛍 Bizda siz uchun eng sifatli va arzon mahsulotlar mavjud.\n"
+        "📞 Aloqa: +998901234567\n"
+        "📍 Manzil: Toshkent shahri\n"
+        "📱 Telegram: @ZetShopUz"
     )
     await callback.answer()
 
